@@ -63,6 +63,8 @@
             <body name="microwave" pos="-0.750 -0.025 1.6" euler="0 0 0.3">
                 <include file="item_assets/microwave_chain.xml"/>
             </body>
+            <body name="microwave123" pos="-1.0 -0.025 1.6" euler="0 0 0.3">
+            </body>
         </body>
         <body name="kettle" pos="-0.269 0.35 1.626">
             <freejoint name="kettle"/>

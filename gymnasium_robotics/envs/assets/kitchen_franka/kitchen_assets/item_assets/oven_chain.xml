@@ -34,13 +34,15 @@
         <geom class="oven_collision" euler="0 1.57 0" pos="-0.015 -0.39 0.254" size="0.022 0.28" type="cylinder" mass=".2"/>
         <body name="knob 1" euler="1.57 0 0" pos="-0.148 0.22 1.243">
             <joint name="knob_Joint_1" axis="0 0 1" type="hinge" limited="true" range="-1.57 0"/>
-            <geom type="box" pos="0 0 .038" size=".014 .048 .018"/>
-            <geom type="cylinder" pos="0 0 .013" size=".05 .008"/>
-            <geom type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1"/>
+            <geom type="box" pos="0 0 .038" size=".014 .048 .018" name="box1"/>
 
-            <geom class="oven_collision" type="box" pos="0 0 .038" size=".014 .048 .018" mass=".01"/>
-            <geom class="oven_collision" type="cylinder" pos="0 0 .013" size=".05 .008" mass=".01"/>
+            <geom type="cylinder" pos="0 0 .013" size=".05 .008" name="idk"/>
+            <geom type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1" name="cyl2"/>
+
+            <geom class="oven_collision" type="box" pos="0 0 .038" size=".014 .048 .018" mass=".01" name="box2"/>
+            <geom class="oven_collision" type="cylinder" pos="0 0 .013" size=".05 .008" mass=".01" name="cyl3"/>
             <site type="sphere" name="knob1_site" pos="0 0 .038" size=".01" group="3" rgba="1 1 0 1"/>
+            <site type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1" name="knob1_test"/>
         </body>
         <body name="Burner 1" pos="0.206 -0.119 0.61">
             <inertial pos="0 0 0" mass=".01" diaginertia="0.001 0.001 0.001"/>
@@ -56,6 +58,7 @@
             <geom class="oven_collision" type="box" pos="0 0 .038" size=".014 .048 .018" mass=".01"/>
             <geom class="oven_collision" type="cylinder" pos="0 0 .013" size=".05 .008" mass=".01"/>
             <site type="sphere" name="knob2_site" pos="0 0 .038" size=".01" group="3" rgba="0 0 1 1"/>
+            <site type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1" name="knob2_test"/>
         </body>
         <body name="Burner 2" pos="-0.24 -0.119 0.61">
             <inertial pos="0 0 0" mass=".01" diaginertia="0.001 0.001 0.001"/>
@@ -71,6 +74,7 @@
             <geom class="oven_collision" type="box" pos="0 0 .038" size=".014 .048 .018" mass=".01"/>
             <geom class="oven_collision" type="cylinder" pos="0 0 .013" size=".05 .008" mass=".01"/>
             <site type="sphere" name="knob3_site" pos="0 0 .038" size=".01" group="3" rgba="0 1 0 1"/>
+            <site type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1" name="knob3_test"/>
         </body>
         <body name="Burner 3" pos="0.204 0.322 0.61">
             <inertial pos="0 0 0" mass=".01" diaginertia="0.001 0.001 0.001"/>
@@ -86,6 +90,7 @@
             <geom class="oven_collision" type="box" pos="0 0 .038" size=".014 .048 .018" mass=".01"/>
             <geom class="oven_collision" type="cylinder" pos="0 0 .013" size=".05 .008" mass=".01"/>
             <site type="sphere" name="knob4_site" pos="0 0 .038" size=".01" group="3" rgba="1 0 0 1"/>
+            <site type="cylinder" pos="0 0.048 .037" size=".014 .018" rgba="1 0 0 1" name="knob4_test"/>
         </body>
         <body name="Burner 4" pos="-0.237 0.322 0.61">
             <inertial pos="0 0 0" mass=".01" diaginertia="0.001 0.001 0.001"/>

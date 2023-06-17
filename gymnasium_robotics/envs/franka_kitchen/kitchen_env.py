@@ -29,17 +29,31 @@ from gymnasium_robotics.utils.mujoco_utils import get_joint_qpos
 import mujoco
 
 OBS_ELEMENT_GOALS = {
-    "bottom_right_burner": np.array([-0.01]),
-    "bottom_left_burner": np.array([-0.01]),
-    "top_right_burner": np.array([-0.01]),
-    "top_left_burner": np.array([-0.01]),
-    "light_switch": np.array([-0.7]),
-    "slide_cabinet": np.array([0.37]),
-    "left_hinge_cabinet": np.array([-1.45]),
-    "right_hinge_cabinet": np.array([1.45]),
-    "microwave": np.array([-0.75]),
-    "kettle": np.array([-0.23, 0.75, 1.62, 0.99, 0.0, 0.0, -0.06]),
+    "bottom_right_burner": np.array([-0.085, 0.6409, 2.22646769]),
+    "bottom_left_burner": np.array([-0.208, 0.6409, 2.22646769]),
+    "top_right_burner": np.array([-0.085, 0.6409, 2.34046769]),
+    "top_left_burner": np.array([-0.208, 0.6409, 2.34046769]),
+    "light_switch": np.array([-0.42413573, 0.61301656, 2.28]),
+    "slide_cabinet": np.array([0.292, 0.607, 2.6]),
+    "left_hinge_cabinet": np.array([-1.0265508, 0.38476558, 2.6]),
+    "right_hinge_cabinet": np.array([-0.16461378,  0.3874147, 2.6]),
+    "microwave": np.array([-1.05611982, -0.0269469, 1.792]),
+    "kettle": np.array([-0.23,  0.75,  1.62]),
 }
+
+OBS_ELEMENT_SITES = {
+    "bottom_right_burner": 'knob1_test',
+    "bottom_left_burner": 'knob2_test',
+    "top_right_burner": 'knob3_test',
+    "top_left_burner": 'knob4_test',
+    "light_switch": 'light_site',
+    "slide_cabinet": 'slide_site',
+    "left_hinge_cabinet": 'hinge_site1',
+    "right_hinge_cabinet": 'hinge_site2',
+    "microwave": 'microhandle_site',
+    "kettle": 'kettle',
+}
+
 BONUS_THRESH = 0.3
 
 
@@ -259,6 +273,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         object_noise_ratio: float = 0.0005,
         **kwargs,
     ):
+        self.previous_obs = None
         self.robot_env = FrankaRobot(
             model_path="../assets/kitchen_franka/kitchen_assets/kitchen_env_model.xml",
             **kwargs,
@@ -296,7 +311,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         )
 
         robot_obs = self.robot_env._get_obs()
-        obs = self._get_obs(robot_obs)
+        obs = self._get_obs(robot_obs, task)
 
         assert (
             int(np.round(1.0 / self.robot_env.dt)) == self.metadata["render_fps"]
@@ -334,9 +349,10 @@ class KitchenEnv(GoalEnv, EzPickle):
         )
 
         self.init_obj_pos = dict()
-        self.init_right_pad = dict()
-        self.init_left_pad = dict()
-        self.init_tcp = dict()
+        self.init_right_pad = None
+        self.init_left_pad = None
+        self.init_tcp = None
+
         EzPickle.__init__(
             self,
             tasks_to_complete,
@@ -351,48 +367,165 @@ class KitchenEnv(GoalEnv, EzPickle):
         achieved_goal: "dict[str, np.ndarray]",
         desired_goal: "dict[str, np.ndarray]",
         info: "dict[str, Any]",
+        action: np.ndarray,
     ):
-
-
-        #print(self.data.body('hand'))
-        #print(self.data.body('right_finger'))
-        #print(self.data.body('left_finger'))
-        #print(self.goal.keys())
         task = list(self.goal.keys())[0]
-        #print(task)
         reward = 0.0
-        '''if task == 'kettle':
-            current_obj_pos = get_joint_qpos(self.model, self.data, task) # there's only one task here
-            
-            gripper_distance_apart = np.linalg.norm(self.data.body('right_finger').xpos - self.data.body('left_finger').xpos)
+
+        if 'microwave' in task:
+            theta = self.data.joint('microwave').qpos
+            reward_grab = KitchenEnv._reward_grab_effort(action)
+            reward_steps = self._reward_pos(self.data.site('microhandle_site').xpos, theta, task)
+            reward = sum((2.0 * hamacher_product(reward_steps[0], reward_grab),
+                          8.0 * reward_steps[1]))
+            if np.linalg.norm(self.data.site('microhandle_site').xpos - OBS_ELEMENT_GOALS[task]) <= 0.05:
+                reward = 10
+        elif 'left_hinge_cabinet' in task:
+            theta = self.data.joint('left_hinge_cabinet').qpos
+            reward_grab = KitchenEnv._reward_grab_effort(action)
+            reward_steps = self._reward_pos(self.data.site('hinge_site1').xpos, theta, task)
+            reward = sum((2.0 * hamacher_product(reward_steps[0], reward_grab),
+                          8.0 * reward_steps[1]))
+            if np.linalg.norm(self.data.site('hinge_site1').xpos - OBS_ELEMENT_GOALS[task]) <= 0.05:
+                reward = 10
+        elif 'right_hinge_cabinet' in task:
+            theta = self.data.joint('right_hinge_cabinet').qpos
+            reward_grab = KitchenEnv._reward_grab_effort(action)
+            reward_steps = self._reward_pos(self.data.site('hinge_site2').xpos, theta, task)
+            reward = sum((2.0 * hamacher_product(reward_steps[0], reward_grab),
+                          8.0 * reward_steps[1]))
+            if np.linalg.norm(self.data.site('hinge_site2').xpos - OBS_ELEMENT_GOALS[task]) <= 0.05:
+                reward = 10
+        elif 'slide_cabinet' in task:
+            goal = OBS_ELEMENT_GOALS[task] # [0.332 0.607 2.6  ] if going with slide site
+            obj = self.data.site('slide_site').xpos
+            obj_init = np.array([-0.108, 0.607, 2.6])
+            gripper_distance_apart = np.linalg.norm(
+                self.data.body('right_finger').xpos - self.data.body('left_finger').xpos)
             gripper_distance_apart = np.clip(gripper_distance_apart / 0.1, 0., 1.)
-            tcp_center = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
-            #print('calculating kettle reward')
-            target = self.goal[task]
-            if target.shape[0] != 7:
-                assert 1==2, 'need to handle smaller goal positions'
-            #print(target.shape[0])
-            obj_to_target = np.linalg.norm(current_obj_pos - target)
-            tcp_to_target = np.linalg.norm(current_obj_pos[:3] - tcp_center)
-            in_place_margin = (np.linalg.norm(self.init_obj_pos[task] - target))
-            tcp_center = np.concatenate([tcp_center, np.zeros(4)])
-            tcp_to_obj = np.linalg.norm(current_obj_pos - tcp_center)
+            tcp_center = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos) / 2.0
+            tcp_opened = gripper_distance_apart
+            tcp_to_obj = np.linalg.norm(obj - tcp_center)
+            target_to_obj = np.linalg.norm(obj - goal)
+            target_to_obj_init = np.linalg.norm(obj_init - goal)
 
-            assert len(info['tasks_to_complete']) == 1, "Cannot compute rewards like this for more than one task"
-            for task in info["tasks_to_complete"]:
-                in_place = tolerance(obj_to_target, bounds=(0, 0.05), margin=in_place_margin, sigmoid='long_tail')
-                object_grasped = self.gripper_caging_reward(np.zeros(4), current_obj_pos, task)
-                tcp_opened = gripper_distance_apart
-                obj = current_obj_pos
-                reward = hamacher_product(object_grasped, in_place)
-                if tcp_to_obj < 0.02 and (tcp_opened > 0) and (obj[2] - 0.01 > self.obj_init_pos[2]):
-                    reward += 1. + 5. * in_place
-                if obj_to_target < BONUS_THRESH:
-                    reward = 10.'''
+            in_place = tolerance(
+                target_to_obj,
+                bounds=(0, BONUS_THRESH),
+                margin=target_to_obj_init,
+                sigmoid='long_tail',
+            )
 
+            object_grasped = self.gripper_caging_reward(
+                action,
+                obj,
+                obj_init_pos=obj_init,
+                object_reach_radius=0.01,
+                obj_radius=0.015,
+                pad_success_thresh=0.05,
+                xz_thresh=0.005,
+                high_density=True
+            )
+            reward = 2 * object_grasped
+
+            if tcp_to_obj < 0.02 and tcp_opened > 0:
+                reward += 1. + reward + 5. * in_place
+            if target_to_obj < 0.05:
+                reward = 10.
+
+        elif 'burner' in task: # reward function from dial environment
+            target = OBS_ELEMENT_GOALS[task]
+            site = None
+            if 'bottom_right_burner' == task:
+                site = 'knob1_test'
+            elif 'bottom_left_burner' == task:
+                site = 'knob2_test'
+            elif 'top_right_burner' == task:
+                site = 'knob3_test'
+            elif 'top_left_burner' == task:
+                site = 'knob4_test'
+            obj = self.data.site(site).xpos
+            dial_push_position = obj + np.array([0.05, 0.02, 0.09])
+            tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos) / 2.0
+
+            target_to_obj = np.linalg.norm(obj - target)
+            target_to_obj_init = np.linalg.norm(dial_push_position - target)
+            in_place = tolerance(
+                target_to_obj,
+                bounds=(0, BONUS_THRESH),
+                margin=abs(target_to_obj_init - BONUS_THRESH),
+                sigmoid='long_tail',
+            )
+
+            dial_reach_radius = 0.005
+            tcp_to_obj = np.linalg.norm(dial_push_position - tcp)
+            tcp_to_obj_init = np.linalg.norm(dial_push_position - self.init_tcp)
+            reach = tolerance(
+                tcp_to_obj,
+                bounds=(0, dial_reach_radius),
+                margin=abs(tcp_to_obj_init - dial_reach_radius),
+                sigmoid='gaussian',
+            )
+            gripper_closed = min(max(0, action[-1]), 1)
+
+            reach = hamacher_product(reach, gripper_closed)
+
+            reward = (10 * hamacher_product(reach, in_place))
+            if target_to_obj < 0.025:
+                reward = 10
+        elif task == 'kettle': # rewards from pick place
+            _TARGET_RADIUS = 0.05
+            tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos) / 2.0
+            obj = self.data.body('kettle').xpos
+            target = OBS_ELEMENT_GOALS[task]
+            obj_init_pos = np.array([-0.269, 0.35, 1.626])
+            obj_to_target = np.linalg.norm(obj - target)
+            tcp_to_obj = np.linalg.norm(obj - tcp)
+            in_place_margin = (np.linalg.norm(obj_init_pos - target))
+            gripper_distance_apart = \
+                np.linalg.norm(self.data.body('right_finger').xpos - self.data.body('left_finger').xpos)
+            tcp_opened = np.clip(gripper_distance_apart / 0.1, 0., 1.)
+            in_place = tolerance(obj_to_target,
+                                  bounds=(0, _TARGET_RADIUS),
+                                  margin=in_place_margin,
+                                  sigmoid='long_tail', )
+
+            object_grasped = self.gripper_caging_reward_pick_place(action, obj)
+            in_place_and_object_grasped = hamacher_product(object_grasped, in_place)
+            reward = in_place_and_object_grasped
+
+            if tcp_to_obj < 0.02 and (tcp_opened > 0) and (obj[2] - 0.01 > obj_init_pos[2]):
+                reward += 1. + 5. * in_place
+            if obj_to_target < _TARGET_RADIUS:
+                reward = 10.
+        elif 'switch' in task:
+            _TARGET_RADIUS = 0.01
+            obj = self.data.site('light_site').xpos
+            target = OBS_ELEMENT_GOALS[task]
+
+            obj_to_target = np.linalg.norm(obj - target)
+            in_place_margin = \
+                np.linalg.norm(np.array([-0.3685, 0.6157, 2.28]) - target)  # np.array is original switch pos
+            in_place = tolerance(obj_to_target,
+                                      bounds=(0, _TARGET_RADIUS),
+                                      margin=in_place_margin,
+                                      sigmoid='long_tail', )
+
+            object_grasped = self._gripper_caging_reward_slide(action, obj, 0.02)
+            in_place_and_object_grasped = hamacher_product(object_grasped, in_place)
+
+            reward = (2 * object_grasped) + (6 * in_place_and_object_grasped)
+
+            if obj_to_target <= _TARGET_RADIUS:
+                reward = 10.
         return reward
 
-    def _get_obs(self, robot_obs):
+    def _get_obs(self, robot_obs, task):
+        # ok so to make the obs more like metaworld we need
+        # current (hand position, gripper open/close, obj1 xyz & quaternion, obj2 xyz & quaternion)
+        # previous (hand position, gripper open/close, obj1 xyz & quaternion, obj2 xyz & quaternion)
+        # goal
+        '''
         obj_qpos = self.data.qpos[9:].copy()
         obj_qvel = self.data.qvel[9:].copy()
 
@@ -402,27 +535,48 @@ class KitchenEnv(GoalEnv, EzPickle):
         )
         obj_qvel += self.object_noise_ratio * self.robot_env.np_random.uniform(
             low=-1.0, high=1.0, size=obj_qvel.shape
-        )
+        )'''
 
         achieved_goal = {
             task: get_joint_qpos(self.model, self.data, task).copy()
             for task in self.goal.keys()
         }
 
+        hand_pos = self.data.body('hand').xpos
+        finger_right, finger_left = (self.data.body('right_finger').xpos, self.data.body('left_finger').xpos)
+        gripper_distance_apart = np.linalg.norm(finger_right - finger_left)
+        gripper_distance_apart = np.clip(gripper_distance_apart / 0.1, 0., 1.)
+        obj_pos = None
+        obj_quat = None
+        if task != 'kettle':
+            obj_pos = self.data.site(OBS_ELEMENT_SITES[task]).xpos
+            obj_quat = np.zeros(4)
+            mujoco.mju_mat2Quat(obj_quat, self.data.site(OBS_ELEMENT_SITES[task]).xmat)
+        else:
+            obj_pos = self.data.body('kettle').xpos
+            obj_quat = self.data.body('kettle').xquat
+
+        current_obs = np.concatenate([hand_pos, [gripper_distance_apart], obj_pos, obj_quat, np.zeros(7)])
+
+        if self.previous_obs is None:
+            self.previous_obs = current_obs
+
+        goal = OBS_ELEMENT_GOALS[task]
+
         obs = {
-            "observation": np.concatenate((robot_obs, obj_qpos, obj_qvel)),
+            "observation": np.concatenate([current_obs, self.previous_obs, goal]),
             "achieved_goal": achieved_goal,
             "desired_goal": self.goal,
         }
-
+        self.previous_obs = current_obs
         return obs
 
-    def step(self, action):
+    def step(self, action, task):
         robot_obs, _, terminated, truncated, info = self.robot_env.step(action)
-        obs = self._get_obs(robot_obs)
+        obs = self._get_obs(robot_obs, task)
         info = {"tasks_to_complete": self.tasks_to_complete}
 
-        reward = self.compute_reward(obs["achieved_goal"], self.goal, info)
+        reward = self.compute_reward(obs["achieved_goal"], self.goal, info, action)
 
         if self.remove_task_when_completed:
             # When the task is accomplished remove from the list of tasks to be completed
@@ -434,6 +588,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         info["step_task_completions"] = self.step_task_completions
         self.episode_task_completions += self.step_task_completions
         info["episode_task_completions"] = self.episode_task_completions
+        info['success'] = 1 if reward == 10 else 0
         self.step_task_completions.clear()
         if self.terminate_on_tasks_completed:
             # terminate if there are no more tasks to complete
@@ -445,14 +600,14 @@ class KitchenEnv(GoalEnv, EzPickle):
         super().reset(seed=seed, **kwargs)
         self.episode_task_completions.clear()
         robot_obs, _ = self.robot_env.reset(seed=seed)
-        obs = self._get_obs(robot_obs)
+        task = list(self.goal.keys())[0]
+        obs = self._get_obs(robot_obs, task)
         self.task_to_complete = self.goal.copy()
-        #task = list(self.goal.keys())[0]
-        #self.init_obj_pos[task] = get_joint_qpos(self.model, self.data, task)
-        #print(self.init_obj_pos)
-        #self.init_right_pad[task] = self.data.body('right_finger')
-        #self.init_left_pad[task] = self.data.body('left_finger')
-        #self.init_tcp[task] = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
+
+        self.init_obj_pos[task] = get_joint_qpos(self.model, self.data, task)
+        self.init_right_pad = self.data.body('right_finger').xpos
+        self.init_left_pad = self.data.body('left_finger').xpos
+        self.init_tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
         info = {
             "tasks_to_complete": self.task_to_complete,
             "episode_task_completions": [],
@@ -461,64 +616,321 @@ class KitchenEnv(GoalEnv, EzPickle):
 
         return obs, info
 
-    def render(self):
-        return self.robot_env.render()
+    def render(self, **kwargs):
+        return self.robot_env.render(**kwargs)
 
     def close(self):
         self.robot_env.close()
 
-    def gripper_caging_reward(self, action, obj_position, task):
+    def _get_pos_objects(self, task):
+        name_jnt = None
+        name_bdy = None
+        if task == 'bottom_right_burner':
+            name_jnt = 'knob_Joint_1'
+            name_bdy = 'knob 1'
+
+        dial_center = self.data.body(name_bdy).xpos
+        dial_angle_rad = self.data.joint(name_jnt).qpos
+        offset = np.array([
+            np.sin(dial_angle_rad),
+            -np.cos(dial_angle_rad),
+            0
+        ])
+        dial_radius = 0.05
+
+        offset *= dial_radius
+
+        return dial_center + offset
+
+    def _gripper_caging_reward_slide(self, action, obj_position, obj_radius):
         pad_success_margin = 0.05
+        grip_success_margin = obj_radius + 0.01
         x_z_success_margin = 0.005
-        obj_radius = 0.015
-        tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
+
+        tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos) / 2.0
+        obj_init_pos = np.array([-0.3685, 0.6157, 2.28])
+
         left_pad = self.data.body('left_finger').xpos
         right_pad = self.data.body('right_finger').xpos
         delta_object_y_left_pad = left_pad[1] - obj_position[1]
         delta_object_y_right_pad = obj_position[1] - right_pad[1]
-        right_caging_margin = abs(abs(obj_position[1] - self.init_right_pad[task].xpos[1])
-            - pad_success_margin)
-        left_caging_margin = abs(abs(obj_position[1] - self.init_left_pad[task].xpos[1])
-            - pad_success_margin)
+        right_caging_margin = abs(abs(obj_position[1] - self.init_right_pad[1]) - pad_success_margin)
+        left_caging_margin = abs(abs(obj_position[1] - self.init_left_pad[1]) - pad_success_margin)
+
         right_caging = tolerance(delta_object_y_right_pad,
-                            bounds=(obj_radius, pad_success_margin),
-                            margin=right_caging_margin,
-                            sigmoid='long_tail',)
+            bounds=(obj_radius, pad_success_margin),
+            margin=right_caging_margin,
+            sigmoid='long_tail',
+        )
         left_caging = tolerance(delta_object_y_left_pad,
-                            bounds=(obj_radius, pad_success_margin),
-                            margin=left_caging_margin,
-                            sigmoid='long_tail',)
+            bounds=(obj_radius, pad_success_margin),
+            margin=left_caging_margin,
+            sigmoid='long_tail',
+        )
+
+        right_gripping = tolerance(delta_object_y_right_pad,
+            bounds=(obj_radius, grip_success_margin),
+            margin=right_caging_margin,
+            sigmoid='long_tail',
+        )
+        left_gripping = tolerance(delta_object_y_left_pad,
+            bounds=(obj_radius, grip_success_margin),
+            margin=left_caging_margin,
+            sigmoid='long_tail',
+        )
+
+        assert right_caging >= 0 and right_caging <= 1
+        assert left_caging >= 0 and left_caging <= 1
+
+        y_caging = hamacher_product(right_caging, left_caging)
+        y_gripping = hamacher_product(right_gripping, left_gripping)
+
+        assert y_caging >= 0 and y_caging <= 1
+
+        tcp_xz = tcp + np.array([0., -tcp[1], 0.])
+        obj_position_x_z = np.copy(obj_position) + np.array([0., -obj_position[1], 0.])
+        tcp_obj_norm_x_z = np.linalg.norm(tcp_xz - obj_position_x_z, ord=2)
+        init_obj_x_z = obj_init_pos + np.array([0., -obj_init_pos[1], 0.])
+        init_tcp_x_z = self.init_tcp + np.array([0., -self.init_tcp[1], 0.])
+
+        tcp_obj_x_z_margin = np.linalg.norm(init_obj_x_z - init_tcp_x_z, ord=2) - x_z_success_margin
+        x_z_caging = tolerance(tcp_obj_norm_x_z,
+                                bounds=(0, x_z_success_margin),
+                                margin=tcp_obj_x_z_margin,
+                                sigmoid='long_tail',)
+
+        assert right_caging >= 0 and right_caging <= 1
+        gripper_closed = min(max(0, action[-1]), 1)
+        assert gripper_closed >= 0 and gripper_closed <= 1
+        caging = hamacher_product(y_caging, x_z_caging)
+        assert caging >= 0 and caging <= 1
+
+        if caging > 0.95:
+            gripping = y_gripping
+        else:
+            gripping = 0.
+        assert gripping >= 0 and gripping <= 1
+
+        caging_and_gripping = (caging + gripping) / 2
+        assert caging_and_gripping >= 0 and caging_and_gripping <= 1
+
+        return caging_and_gripping
+    def gripper_caging_reward(self, action, obj_position, obj_radius,
+                               pad_success_thresh,
+                               object_reach_radius,
+                               xz_thresh,
+                               obj_init_pos,
+                               desired_gripper_effort=1.0,
+                               high_density=False,
+                               medium_density=False):
+
+        if high_density and medium_density:
+            raise ValueError("Can only be either high_density or medium_density")
+            # MARK: Left-right gripper information for caging reward----------------
+        left_pad = self.data.body('left_finger').xpos
+        right_pad = self.data.body('right_finger').xpos
+
+        # get current positions of left and right pads (Y axis)
+        pad_y_lr = np.hstack((left_pad[1], right_pad[1]))
+        # compare *current* pad positions with *current* obj position (Y axis)
+        pad_to_obj_lr = np.abs(pad_y_lr - obj_position[1])
+        # compare *current* pad positions with *initial* obj position (Y axis)
+        pad_to_objinit_lr = np.abs(pad_y_lr - obj_init_pos[1])
+
+        # Compute the left/right caging rewards. This is crucial for success,
+        # yet counterintuitive mathematically because we invented it
+        # accidentally.
+        #
+        # Before touching the object, `pad_to_obj_lr` ("x") is always separated
+        # from `caging_lr_margin` ("the margin") by some small number,
+        # `pad_success_thresh`.
+        #
+        # When far away from the object:
+        #       x = margin + pad_success_thresh
+        #       --> Thus x is outside the margin, yielding very small reward.
+        #           Here, any variation in the reward is due to the fact that
+        #           the margin itself is shifting.
+        # When near the object (within pad_success_thresh):
+        #       x = pad_success_thresh - margin
+        #       --> Thus x is well within the margin. As long as x > obj_radius,
+        #           it will also be within the bounds, yielding maximum reward.
+        #           Here, any variation in the reward is due to the gripper
+        #           moving *too close* to the object (i.e, blowing past the
+        #           obj_radius bound).
+        #
+        # Therefore, before touching the object, this is very nearly a binary
+        # reward -- if the gripper is between obj_radius and pad_success_thresh,
+        # it gets maximum reward. Otherwise, the reward very quickly falls off.
+        #
+        # After grasping the object and moving it away from initial position,
+        # x remains (mostly) constant while the margin grows considerably. This
+        # penalizes the agent if it moves *back* toward `obj_init_pos`, but
+        # offers no encouragement for leaving that position in the first place.
+        # That part is left to the reward functions of individual environments.
+        caging_lr_margin = np.abs(pad_to_objinit_lr - pad_success_thresh)
+        caging_lr = [tolerance(
+            pad_to_obj_lr[i],  # "x" in the description above
+            bounds=(obj_radius, pad_success_thresh),
+            margin=caging_lr_margin[i],  # "margin" in the description above
+            sigmoid='long_tail',
+        ) for i in range(2)]
+        caging_y = hamacher_product(*caging_lr)
+
+        # MARK: X-Z gripper information for caging reward-----------------------
+        tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
+        xz = [0, 2]
+
+        # Compared to the caging_y reward, caging_xz is simple. The margin is
+        # constant (something in the 0.3 to 0.5 range) and x shrinks as the
+        # gripper moves towards the object. After picking up the object, the
+        # reward is maximized and changes very little
+        caging_xz_margin = np.linalg.norm(obj_init_pos[xz] - self.init_tcp[xz])
+        caging_xz_margin -= xz_thresh
+        caging_xz = tolerance(
+            np.linalg.norm(tcp[xz] - obj_position[xz]),  # "x" in the description above
+            bounds=(0, xz_thresh),
+            margin=caging_xz_margin,  # "margin" in the description above
+            sigmoid='long_tail',
+        )
+
+        # MARK: Closed-extent gripper information for caging reward-------------
+        gripper_closed = min(max(0, action[-1]), desired_gripper_effort) \
+                         / desired_gripper_effort
+
+        # MARK: Combine components----------------------------------------------
+        caging = hamacher_product(caging_y, caging_xz)
+        gripping = gripper_closed if caging > 0.97 else 0.
+        caging_and_gripping = hamacher_product(caging, gripping)
+
+        if high_density:
+            caging_and_gripping = (caging_and_gripping + caging) / 2
+        if medium_density:
+            tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos)/2.0
+            tcp_to_obj = np.linalg.norm(obj_position - tcp)
+            tcp_to_obj_init = np.linalg.norm(obj_init_pos - self.init_tcp)
+            # Compute reach reward
+            # - We subtract `object_reach_radius` from the margin so that the
+            #   reward always starts with a value of 0.1
+            reach_margin = abs(tcp_to_obj_init - object_reach_radius)
+            reach = tolerance(
+                tcp_to_obj,
+                bounds=(0, object_reach_radius),
+                margin=reach_margin,
+                sigmoid='long_tail',
+            )
+            caging_and_gripping = (caging_and_gripping + reach) / 2
+
+        return caging_and_gripping
+
+    def gripper_caging_reward_pick_place(self, action, obj_position):
+        pad_success_margin = 0.05
+        x_z_success_margin = 0.005
+        obj_radius = 0.015
+        tcp = (self.data.body('right_finger').xpos + self.data.body('left_finger').xpos) / 2.0
+        obj_init_pos = np.array([-0.269, 0.35, 1.626])
+
+        left_pad = self.data.body('left_finger').xpos
+        right_pad = self.data.body('right_finger').xpos
+        delta_object_y_left_pad = left_pad[1] - obj_position[1]
+        delta_object_y_right_pad = obj_position[1] - right_pad[1]
+        right_caging_margin = abs(abs(obj_position[1] - self.init_right_pad[1])
+            - pad_success_margin)
+        left_caging_margin = abs(abs(obj_position[1] - self.init_left_pad[1])
+            - pad_success_margin)
+
+        right_caging = tolerance(delta_object_y_right_pad,
+                                bounds=(obj_radius, pad_success_margin),
+                                margin=right_caging_margin,
+                                sigmoid='long_tail',)
+        left_caging = tolerance(delta_object_y_left_pad,
+                                bounds=(obj_radius, pad_success_margin),
+                                margin=left_caging_margin,
+                                sigmoid='long_tail',)
+
         y_caging = hamacher_product(left_caging,
                                                  right_caging)
 
         # compute the tcp_obj distance in the x_z plane
         tcp_xz = tcp + np.array([0., -tcp[1], 0.])
-        #print(tcp_xz)
-        #print('here')
-        tcp_xz = np.concatenate([tcp_xz, np.zeros(4)])
-        obj_position_x_z = np.copy(obj_position) + np.array([0., -obj_position[1], 0., 0., 0., 0., 0.])
+        obj_position_x_z = np.copy(obj_position) + np.array([0., -obj_position[1], 0.])
         tcp_obj_norm_x_z = np.linalg.norm(tcp_xz - obj_position_x_z, ord=2)
 
         # used for computing the tcp to object object margin in the x_z plane
-        init_obj_x_z = self.init_obj_pos[task] + np.array([0., -self.init_obj_pos[task][1], 0., 0., 0., 0., 0.])
-        init_tcp_x_z = self.init_tcp[task] + np.array([0., -self.init_tcp[task][1], 0.])
-        init_tcp_x_z = np.concatenate([init_tcp_x_z, np.zeros(4)])
+        init_obj_x_z = obj_init_pos + np.array([0., -obj_init_pos[1], 0.])
+        init_tcp_x_z = self.init_tcp + np.array([0., -self.init_tcp[1], 0.])
         tcp_obj_x_z_margin = np.linalg.norm(init_obj_x_z - init_tcp_x_z, ord=2) - x_z_success_margin
 
-
         x_z_caging = tolerance(tcp_obj_norm_x_z,
-                            bounds=(0, x_z_success_margin),
-                            margin=tcp_obj_x_z_margin,
-                            sigmoid='long_tail',)
+                                bounds=(0, x_z_success_margin),
+                                margin=tcp_obj_x_z_margin,
+                                sigmoid='long_tail',)
 
         gripper_closed = min(max(0, action[-1]), 1)
         caging = hamacher_product(y_caging, x_z_caging)
+
         gripping = gripper_closed if caging > 0.97 else 0.
         caging_and_gripping = hamacher_product(caging, gripping)
         caging_and_gripping = (caging_and_gripping + caging) / 2
         return caging_and_gripping
 
+    @staticmethod
+    def _reward_grab_effort(actions):
+        return (np.clip(actions[-1], -1, 1) + 1.0) / 2.0
 
+    def _reward_pos(self, obs, theta, task):
+        hand = self.data.body('hand').xpos
+        door = None
+        if 'microwave' in task:
+            door = self.data.site('microhandle_site').xpos  # + np.array([-0.05, 0, 0])
+        elif 'left_hinge_cabinet' in task:
+            door = self.data.site('hinge_site1').xpos  # + np.array([-0.05, 0, 0])
+        elif 'right_hinge_cabinet' in task:
+            door = self.data.site('hinge_site2').xpos  # + np.array([-0.05, 0, 0])
+        threshold = 0.12
+        # floor is a 3D funnel centered on the door handle
+        '''radius = np.linalg.norm(hand[:2] - door[:2])
+        if radius <= threshold:
+            floor = 0.0
+        else:
+            floor = 0.04 * np.log(radius - threshold) + 0.4
+        # prevent the hand from running into the handle prematurely by keeping
+        # it above the "floor"
+        '''
+        above_floor = 1.0
+
+        ''''if hand[2] >= floor else tolerance(
+            floor - hand[2],
+            bounds=(0.0, 0.01),
+            margin=floor / 2.0,
+            sigmoid='long_tail',
+        )'''
+        ''''# move the hand to a position between the handle and the main door body
+        in_place = tolerance(
+            np.linalg.norm(hand - door - np.array([0.05, 0.03, -0.01])),
+            bounds=(0, threshold / 2.0),
+            margin=0.5,
+            sigmoid='long_tail',
+        )'''
+        # grab the door's handle
+        in_place = tolerance(
+            np.linalg.norm(hand - door),
+            bounds=(0, 0.02),
+            margin=0.5,
+            sigmoid='long_tail',
+        )
+        ready_to_open = hamacher_product(above_floor, in_place)
+
+        # now actually open the door
+        door_angle = -theta
+        a = 0.4  # Relative importance of just *trying* to open the door at all
+        b = 0.6  # Relative importance of fully opening the door
+        opened = a * float(theta < -np.pi/90.) + b * tolerance(
+            np.pi/2. + np.pi/6 - door_angle,
+            bounds=(0, 0.5),
+            margin=np.pi/3.,
+            sigmoid='long_tail',
+        )[0]
+        return ready_to_open, opened
 
 def tolerance(x,
               bounds=(0.0, 0.0),

@@ -61,7 +61,6 @@ class FrankaRobot(MujocoEnv):
             path.dirname(path.realpath(__file__)),
             model_path,
         )
-
         self.control_steps = control_steps
         self.robot_noise_ratio = robot_noise_ratio
 
@@ -74,6 +73,7 @@ class FrankaRobot(MujocoEnv):
             frame_skip,
             observation_space,
             default_camera_config=default_camera_config,
+            # render_mode='human',
             **kwargs,
         )
 
@@ -97,9 +97,11 @@ class FrankaRobot(MujocoEnv):
         self.actuation_center = (ctrlrange[:, 1] + ctrlrange[:, 0]) / 2.0
 
         self.model_names = MujocoModelNames(self.model)
+        mujoco.mj_saveModel(self.model, 'test.mjb', None)
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0)
+        mujoco.mj_forward(self.model, self.data)
         if self.controller is not None:
             current_eef_pose = self.data.site_xpos[
                 self.model_names.site_name2id["EEF"]
