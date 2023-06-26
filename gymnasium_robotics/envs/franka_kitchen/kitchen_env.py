@@ -519,6 +519,11 @@ class KitchenEnv(GoalEnv, EzPickle):
 
             if obj_to_target <= _TARGET_RADIUS:
                 reward = 10.
+
+        if task in self.acheived_goals:
+            other_task_rewards = [self.compute_reward(obs["achieved_goal"], self.goal, info, action, t) for t in OBS_ELEMENT_GOALS.keys() if t != task]
+            if any(int(item) == 10 for item in other_task_rewards):
+                reward = -10 
         return reward
 
     def _get_obs(self, robot_obs, task):
