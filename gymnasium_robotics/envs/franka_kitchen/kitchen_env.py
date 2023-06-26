@@ -368,8 +368,9 @@ class KitchenEnv(GoalEnv, EzPickle):
         desired_goal: "dict[str, np.ndarray]",
         info: "dict[str, Any]",
         action: np.ndarray,
+        task
     ):
-        task = list(self.goal.keys())[0]
+        #task = list(self.goal.keys())[0]
         reward = 0.0
 
         if 'microwave' in task:
@@ -576,7 +577,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         obs = self._get_obs(robot_obs, task)
         info = {"tasks_to_complete": self.tasks_to_complete}
 
-        reward = self.compute_reward(obs["achieved_goal"], self.goal, info, action)
+        reward = self.compute_reward(obs["achieved_goal"], self.goal, info, action, task)
 
         if self.remove_task_when_completed:
             # When the task is accomplished remove from the list of tasks to be completed
