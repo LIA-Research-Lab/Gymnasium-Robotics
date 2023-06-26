@@ -521,7 +521,7 @@ class KitchenEnv(GoalEnv, EzPickle):
                 reward = 10.
 
         if task in self.acheived_goals:
-            other_task_rewards = [self.compute_reward(obs["achieved_goal"], self.goal, info, action, t) for t in OBS_ELEMENT_GOALS.keys() if t != task]
+            other_task_rewards = [self.compute_reward(achieved_goal, desired_goal, info, action, t) for t in OBS_ELEMENT_GOALS.keys() if t != task]
             if any(int(item) == 10 for item in other_task_rewards):
                 reward = -10 
         return reward
