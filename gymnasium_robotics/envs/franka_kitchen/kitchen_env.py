@@ -54,6 +54,22 @@ OBS_ELEMENT_SITES = {
     "kettle": 'kettle',
 }
 
+OBS_ELEMENT_INIT_POS = {
+    "bottom_right_burner": None,
+    "bottom_left_burner": None,
+    "top_right_burner": None,
+    "top_left_burner": None,
+    "light_switch": None,
+    "slide_cabinet": None,
+    "left_hinge_cabinet": None,
+    "right_hinge_cabinet": None,
+    "microwave": None,
+    "kettle": None,
+}
+
+
+
+
 BONUS_THRESH = 0.3
 
 
@@ -271,6 +287,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         terminate_on_tasks_completed: bool = True,
         remove_task_when_completed: bool = True,
         object_noise_ratio: float = 0.0005,
+        obs_space = 'meta_world',
         **kwargs,
     ):
         self.previous_obs = None
@@ -309,7 +326,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         self.object_noise_ratio = (
             object_noise_ratio  # stochastic noise added to the object observations
         )
-
+        self.obs_type = obs_space
         robot_obs = self.robot_env._get_obs()
         obs = self._get_obs(robot_obs, task)
 
@@ -520,10 +537,29 @@ class KitchenEnv(GoalEnv, EzPickle):
             if obj_to_target <= _TARGET_RADIUS:
                 reward = 10.
 
-        if task in self.acheived_goals:
-            other_task_rewards = [self.compute_reward(achieved_goal, desired_goal, info, action, t) for t in OBS_ELEMENT_GOALS.keys() if t != task]
-            if any(int(item) == 10 for item in other_task_rewards):
-                reward = -10 
+        if task in self.goal:
+            if any(int(r) == 10 for r in [self.compute_reward(achieved_goal, desired_goal, info, action, t) for t in OBS_ELEMENT_GOALS.keys() if t != task]):
+                reward += -10
+
+            # now check if any of the other tasks objects were bumped/moved more than a certain threshold
+            # reward += -3 for tasks that solve incorrect task
+            #for t in OBS_ELEMENT_GOALS.keys():
+            #    if t != task:
+            #        if t == 'kettle':
+            #            if np.linalg.norm(OBS_ELEMENT_INIT_POS[t] - self.data.body('kettle').xpos) > 0.05:
+            #                reward += -1
+            #        else:
+            #            if np.linalg.norm(OBS_ELEMENT_INIT_POS[t] - self.data.site(OBS_ELEMENT_SITES[t]).xpos) > 0.05:
+            #                reward += -1
+            #        #else:
+            #        #    if np.linalg.norm(OBS_ELEMENT_INIT_POS[t] - self.data.site(OBS_ELEMENT_SITES[t]).xpos) > 0.05:
+            #        #        reward += -2
+
+
+            #if any(int(item) == 10 for item in other_task_rewards):
+            #print(other_task_rewards)
+            #print([t for t in OBS_ELEMENT_GOALS.keys() if t != task])
+            #print(f"task in self.goal {task} {self.goal} {task in self.goal}")
         return reward
 
     def _get_obs(self, robot_obs, task):
@@ -543,38 +579,63 @@ class KitchenEnv(GoalEnv, EzPickle):
             low=-1.0, high=1.0, size=obj_qvel.shape
         )'''
 
-        achieved_goal = {
-            task: get_joint_qpos(self.model, self.data, task).copy()
-            for task in self.goal.keys()
-        }
+        if self.obs_type == 'original':
+            obj_qpos = self.data.qpos[9:].copy()
+            obj_qvel = self.data.qvel[9:].copy()
+            # Simulate observation noise
+            obj_qpos += self.object_noise_ratio * self.robot_env.np_random.uniform(
+                low=-1.0, high=1.0, size=obj_qpos.shape
+            )
+            obj_qvel += self.object_noise_ratio * self.robot_env.np_random.uniform(
+                low=-1.0, high=1.0, size=obj_qvel.shape
+            )
 
-        hand_pos = self.data.body('hand').xpos
-        finger_right, finger_left = (self.data.body('right_finger').xpos, self.data.body('left_finger').xpos)
-        gripper_distance_apart = np.linalg.norm(finger_right - finger_left)
-        gripper_distance_apart = np.clip(gripper_distance_apart / 0.1, 0., 1.)
-        obj_pos = None
-        obj_quat = None
-        if task != 'kettle':
-            obj_pos = self.data.site(OBS_ELEMENT_SITES[task]).xpos
-            obj_quat = np.zeros(4)
-            mujoco.mju_mat2Quat(obj_quat, self.data.site(OBS_ELEMENT_SITES[task]).xmat)
+            achieved_goal = {
+                task: get_joint_qpos(self.model, self.data, task).copy()
+                for task in self.goal.keys()
+            }
+
+            task = list(self.goal.keys())[0]
+            
+            obs = {
+                "observation": np.concatenate((robot_obs, obj_qpos, obj_qvel, OBS_ELEMENT_GOALS[task])),
+                "achieved_goal": achieved_goal,
+                "desired_goal": self.goal,
+            }
+
         else:
-            obj_pos = self.data.body('kettle').xpos
-            obj_quat = self.data.body('kettle').xquat
+            achieved_goal = {
+                task: get_joint_qpos(self.model, self.data, task).copy()
+                for task in self.goal.keys()
+            }
 
-        current_obs = np.concatenate([hand_pos, [gripper_distance_apart], obj_pos, obj_quat, np.zeros(7)])
+            hand_pos = self.data.body('hand').xpos
+            finger_right, finger_left = (self.data.body('right_finger').xpos, self.data.body('left_finger').xpos)
+            gripper_distance_apart = np.linalg.norm(finger_right - finger_left)
+            gripper_distance_apart = np.clip(gripper_distance_apart / 0.1, 0., 1.)
+            obj_pos = None
+            obj_quat = None
+            if task != 'kettle':
+                obj_pos = self.data.site(OBS_ELEMENT_SITES[task]).xpos
+                obj_quat = np.zeros(4)
+                mujoco.mju_mat2Quat(obj_quat, self.data.site(OBS_ELEMENT_SITES[task]).xmat)
+            else:
+                obj_pos = self.data.body('kettle').xpos
+                obj_quat = self.data.body('kettle').xquat
 
-        if self.previous_obs is None:
+            current_obs = np.concatenate([hand_pos, [gripper_distance_apart], obj_pos, obj_quat, np.zeros(7)])
+
+            if self.previous_obs is None:
+                self.previous_obs = current_obs
+
+            goal = OBS_ELEMENT_GOALS[task]
+
+            obs = {
+                "observation": np.concatenate([current_obs, self.previous_obs, goal]),
+                "achieved_goal": achieved_goal,
+                "desired_goal": self.goal,
+            }
             self.previous_obs = current_obs
-
-        goal = OBS_ELEMENT_GOALS[task]
-
-        obs = {
-            "observation": np.concatenate([current_obs, self.previous_obs, goal]),
-            "achieved_goal": achieved_goal,
-            "desired_goal": self.goal,
-        }
-        self.previous_obs = current_obs
         return obs
 
     def step(self, action, task):
@@ -591,10 +652,16 @@ class KitchenEnv(GoalEnv, EzPickle):
                 for element in self.step_task_completions
             ]
 
+        if task != 'kettle':
+            obj_pos = self.data.site(OBS_ELEMENT_SITES[task]).xpos
+        else:
+            obj_pos = self.data.body('kettle').xpos
+
+
+        info['success'] = float(np.linalg.norm(obj_pos - OBS_ELEMENT_GOALS[task]) <= 0.05)
         info["step_task_completions"] = self.step_task_completions
         self.episode_task_completions += self.step_task_completions
         info["episode_task_completions"] = self.episode_task_completions
-        info['success'] = 1 if reward == 10 else 0
         self.step_task_completions.clear()
         if self.terminate_on_tasks_completed:
             # terminate if there are no more tasks to complete
@@ -609,7 +676,14 @@ class KitchenEnv(GoalEnv, EzPickle):
         task = list(self.goal.keys())[0]
         obs = self._get_obs(robot_obs, task)
         self.task_to_complete = self.goal.copy()
-
+        for t in ['microwave', 'kettle', 'right_hinge_cabinet', 'left_hinge_cabinet', 'slide_cabinet', 'light_switch', 'top_left_burner', 'top_right_burner', 'bottom_left_burner', 'bottom_right_burner']:
+            #print(t)
+            if t == 'kettle':
+                OBS_ELEMENT_INIT_POS[t] = self.data.body(OBS_ELEMENT_SITES[t]).xpos
+            elif t == 'microwave' or t == 'right_hinge_cabinet' or t == 'left_hinge_cabinet':
+                OBS_ELEMENT_INIT_POS[t] = self.data.joint(t).qpos
+            else:
+                OBS_ELEMENT_INIT_POS[t] = self.data.site(OBS_ELEMENT_SITES[t]).xpos
         self.init_obj_pos[task] = get_joint_qpos(self.model, self.data, task)
         self.init_right_pad = self.data.body('right_finger').xpos
         self.init_left_pad = self.data.body('left_finger').xpos

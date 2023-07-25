@@ -73,7 +73,6 @@ class FrankaRobot(MujocoEnv):
             frame_skip,
             observation_space,
             default_camera_config=default_camera_config,
-            # render_mode='human',
             **kwargs,
         )
 
