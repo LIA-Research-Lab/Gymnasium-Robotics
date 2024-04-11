@@ -638,7 +638,8 @@ class KitchenEnv(GoalEnv, EzPickle):
             self.previous_obs = current_obs
         return obs
 
-    def step(self, action, task):
+    def step(self, action):
+        action, task = action[0], action[1]
         robot_obs, _, terminated, truncated, info = self.robot_env.step(action)
         obs = self._get_obs(robot_obs, task)
         info = {"tasks_to_complete": self.tasks_to_complete}
