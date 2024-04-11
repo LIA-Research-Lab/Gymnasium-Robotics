@@ -96,7 +96,6 @@ class FrankaRobot(MujocoEnv):
         self.actuation_center = (ctrlrange[:, 1] + ctrlrange[:, 0]) / 2.0
 
         self.model_names = MujocoModelNames(self.model)
-        mujoco.mj_saveModel(self.model, 'test.mjb', None)
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0)
