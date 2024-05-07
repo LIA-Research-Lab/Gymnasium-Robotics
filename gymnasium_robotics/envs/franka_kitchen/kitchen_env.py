@@ -611,6 +611,7 @@ class KitchenEnv(GoalEnv, EzPickle):
             # terminate if there are no more tasks to complete
             terminated = len(self.episode_task_completions) == len(self.goal.keys())
         obs = np.concatenate([obs['observation'], OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]])
+        info['success'] = np.linalg.norm(OBS_ELEMENT_GOALS[self.tasks_to_complete[0]] - self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos) < 0.05
         return obs, reward, terminated, truncated, info
 
     def reset(self, *, seed: Optional[int] = None, **kwargs):
@@ -625,6 +626,7 @@ class KitchenEnv(GoalEnv, EzPickle):
             "step_task_completions": [],
         }
         obs = np.concatenate([obs['observation'], OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]])
+        info['success'] = np.linalg.norm(OBS_ELEMENT_GOALS[self.tasks_to_complete[0]] - self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos) < 0.05
         return obs, info
 
     def render(self):
