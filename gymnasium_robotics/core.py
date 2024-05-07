@@ -30,7 +30,7 @@ class GoalEnv(gym.Env):
         """
         super().reset(seed=seed)
         # Enforce that each GoalEnv uses a Goal-compatible observation space.
-        if not isinstance(self.observation_space, gym.spaces.Dict):
+        '''if not isinstance(self.observation_space, gym.spaces.Dict):
             raise error.Error(
                 "GoalEnv requires an observation space of type gym.spaces.Dict"
             )
@@ -40,7 +40,7 @@ class GoalEnv(gym.Env):
                     'GoalEnv requires the "{}" key to be part of the observation dictionary.'.format(
                         key
                     )
-                )
+                )'''
 
     @abstractmethod
     def compute_reward(self, achieved_goal, desired_goal, info):

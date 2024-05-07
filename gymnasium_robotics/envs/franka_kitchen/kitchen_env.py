@@ -33,7 +33,7 @@ OBS_ELEMENT_INDICES = {
     "microwave": np.array([22]),
     "kettle": np.array([23, 24, 25, 26, 27, 28, 29]),
 }
-OBS_ELEMENT_GOALS = {
+'''OBS_ELEMENT_GOALS = {
     "bottom burner": np.array([-0.88, -0.01]),
     "top burner": np.array([-0.92, -0.01]),
     "light switch": np.array([-0.69, -0.05]),
@@ -41,7 +41,32 @@ OBS_ELEMENT_GOALS = {
     "hinge cabinet": np.array([0.0, 1.45]),
     "microwave": np.array([-0.75]),
     "kettle": np.array([-0.23, 0.75, 1.62, 0.99, 0.0, 0.0, -0.06]),
+}'''
+OBS_ELEMENT_GOALS = {
+    "bottom burner": np.array([-0.085, 0.6409, 2.22646769]),
+    "bottom_left_burner": np.array([-0.208, 0.6409, 2.22646769]),
+    "top burner": np.array([-0.085, 0.6409, 2.34046769]),
+    "top_left_burner": np.array([-0.208, 0.6409, 2.34046769]),
+    "light switch": np.array([-0.42413573, 0.61301656, 2.28]),
+    "slide cabinet": np.array([0.292, 0.607, 2.6]),
+    "left_hinge_cabinet": np.array([-1.0265508, 0.38476558, 2.6]),
+    "hinge cabinet": np.array([-0.16461378,  0.3874147, 2.6]),
+    "microwave": np.array([-1.05611982, -0.0269469, 1.792]),
+    "kettle": np.array([-0.23,  0.75,  1.62]),
 }
+OBS_ELEMENT_SITES = {
+    "bottom burner": 'knob1_site',
+    "bottom_left_burner": 'knob2_test',
+    "top burner": 'knob3_site',
+    "top_left_burner": 'knob4_test',
+    "light switch": 'light_site',
+    "slide cabinet": 'slide_site',
+    "left_hinge_cabinet": 'hinge_site1',
+    "hinge cabinet": 'hinge_site2',
+    "microwave": 'microhandle_site',
+    "kettle": 'kettle_site',
+}
+
 BONUS_THRESH = 0.3
 
 
@@ -229,7 +254,7 @@ class KitchenEnv(GoalEnv, EzPickle):
     def __init__(
         self,
         tasks_to_complete: "list[str]" = list(OBS_ELEMENT_GOALS.keys()),
-        terminate_on_tasks_completed: bool = True,
+        terminate_on_tasks_completed: bool = False,
         remove_task_when_completed: bool = True,
         object_noise_ratio: float = 0.0005,
         **kwargs,
@@ -282,7 +307,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         self.remove_task_when_completed = remove_task_when_completed
 
         self.goal = {}
-        self.tasks_to_complete = set(tasks_to_complete)
+        self.tasks_to_complete = list(set(tasks_to_complete))
         # Validate list of tasks to complete
         for task in tasks_to_complete:
             if task not in OBS_ELEMENT_GOALS.keys():
@@ -310,34 +335,8 @@ class KitchenEnv(GoalEnv, EzPickle):
         ), f'Expected value: {int(np.round(1.0 / self.robot_env.dt))}, Actual value: {self.metadata["render_fps"]}'
 
         self.action_space = self.robot_env.action_space
-        self.observation_space = spaces.Dict(
-            dict(
-                desired_goal=spaces.Dict(
-                    {
-                        task: spaces.Box(
-                            -np.inf,
-                            np.inf,
-                            shape=goal.shape,
-                            dtype="float64",
-                        )
-                        for task, goal in obs["achieved_goal"].items()
-                    }
-                ),
-                achieved_goal=spaces.Dict(
-                    {
-                        task: spaces.Box(
-                            -np.inf,
-                            np.inf,
-                            shape=goal.shape,
-                            dtype="float64",
-                        )
-                        for task, goal in obs["achieved_goal"].items()
-                    }
-                ),
-                observation=spaces.Box(
-                    -np.inf, np.inf, shape=obs["observation"].shape, dtype="float64"
-                ),
-            )
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(62,), dtype=np.float32
         )
 
         EzPickle.__init__(
@@ -355,14 +354,210 @@ class KitchenEnv(GoalEnv, EzPickle):
         desired_goal: "dict[str, np.ndarray]",
         info: "dict[str, Any]",
     ):
-        self.step_task_completions.clear()
-        for task in self.tasks_to_complete:
-            distance = np.linalg.norm(achieved_goal[task] - desired_goal[task])
-            complete = distance < BONUS_THRESH
-            if complete:
-                self.step_task_completions.append(task)
+        
+        if self.tasks_to_complete[0] == 'bottom burner':
+            robot_ee_pos = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            knob_position = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos  # Assuming obj1 is the knob
 
-        return float(len(self.step_task_completions))
+            # 1. Distance Reward: Encourage the gripper to move close to the knob
+            distance = np.linalg.norm(robot_ee_pos - knob_position)
+            distance_reward = -distance  # Negative because we want to minimize distance
+
+            # 2. Goal Position Reward: Encourage exact positioning (for simplicity, not considering orientation)
+            # Assuming 'goal_position' to be the ideal position to start turning the knob
+            position_error = np.linalg.norm(robot_ee_pos - OBS_ELEMENT_GOALS[self.tasks_to_complete[0]])
+            position_reward = -position_error  # Negative because we want to minimize error
+
+            # Combine the rewards
+            # Weights can be adjusted based on the relative importance of each component
+            total_reward = (distance_reward * 0.5) + (position_reward * 0.5)
+
+            return total_reward
+        elif self.tasks_to_complete[0] == 'top burner':
+            gripper_pos = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            knob_pos = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos  # Assuming obj1 is the oven knob
+    
+            # 1. Reward for being close to the knob
+            distance_to_knob = np.linalg.norm(gripper_pos - knob_pos)
+            # Inverse of the distance to make it a positive reward, higher when closer
+            proximity_reward = 1 / (1 + distance_to_knob)
+    
+            # 2. Reward for achieving the goal state
+            # Assuming the goal is a position where the knob should be when the burner is on
+            # This might involve a specific position or orientation, but only position is known
+            goal_pos = OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]
+            distance_to_goal = np.linalg.norm(knob_pos - goal_pos)
+            # Similar to proximity, reward for being close to the goal position
+            goal_achievement_reward = 1 / (1 + distance_to_goal)
+    
+            # Total reward is a weighted sum of the proximity and goal achievement rewards
+            # Weights can be adjusted based on importance of subtasks
+            total_reward = 0.7 * proximity_reward + 0.3 * goal_achievement_reward
+
+            return total_reward
+        elif self.tasks_to_complete[0] == "hinge cabinet":
+            DISTANCE_SCALE = -0.1
+            GRASP_REWARD = 10
+            OPENING_REWARD_SCALE = -0.1
+    
+            # Calculate the distance to the handle
+            handle_position = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos  # Assuming obj1 is the handle
+            gripper_position = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            distance_to_handle = np.linalg.norm(gripper_position - handle_position)
+            gripper_openness = np.linalg.norm(
+                self.data.body('panda0_rightfinger').xpos - self.data.body('panda0_leftfinger').xpos)
+            gripper_openness = np.clip(gripper_openness / 0.1, 0., 1.)
+            # Reward for reducing distance to handle
+            distance_reward = DISTANCE_SCALE * distance_to_handle
+    
+            # Check if the gripper is close enough and 'closed' to consider it grasping
+            GRASP_THRESHOLD = 0.1  # Threshold for distance to consider the gripper is grasping the handle
+            GRIPPER_CLOSED_VALUE = -0.5  # Assuming gripper_openness closer to -1 is more closed
+            is_grasping = distance_to_handle < GRASP_THRESHOLD and gripper_openness < GRIPPER_CLOSED_VALUE
+            grasp_reward = GRASP_REWARD if is_grasping else 0
+    
+            # Reward for moving the handle towards the goal position
+            goal_position = OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]
+            current_handle_position = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos
+            distance_to_goal = np.linalg.norm(current_handle_position - goal_position)
+            opening_reward = OPENING_REWARD_SCALE * distance_to_goal
+    
+            # Total reward
+            total_reward = distance_reward + grasp_reward + opening_reward
+    
+            return total_reward
+        elif self.tasks_to_complete[0] == "slide cabinet":
+            gripper_pos = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            handle_pos = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos
+            goal_pos = OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]
+    
+            # Compute the distance between the gripper and the handle
+            distance_to_handle = np.linalg.norm(gripper_pos - handle_pos)
+    
+            # Compute how much the handle has moved towards the goal
+            initial_distance_to_goal = np.linalg.norm(handle_pos - goal_pos)
+            current_distance_to_goal = np.linalg.norm(self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos - goal_pos)
+    
+            # Reward for approaching the handle: more positive as the distance decreases
+            # Normalized by adding a small constant to prevent division by zero.
+            approach_reward = 1.0 / (distance_to_handle + 0.01)
+    
+            # Reward for moving handle towards the goal: more positive as the handle gets closer to the goal
+            progress_reward = (initial_distance_to_goal - current_distance_to_goal) / (initial_distance_to_goal + 0.01)
+    
+            # Total reward combines both elements, with possible weighting
+            total_reward = approach_reward + progress_reward
+    
+            return total_reward
+        elif self.tasks_to_complete[0] == 'microwave':
+            gripper_position = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            gripper_openness = np.linalg.norm(
+                self.data.body('panda0_rightfinger').xpos - self.data.body('panda0_leftfinger').xpos)
+            gripper_openness = np.clip(gripper_openness / 0.1, 0., 1.)
+            handle_position = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos  # Assuming obj1 is the microwave handle
+    
+            # Constants for reward scaling
+            distance_scale = -1.0  # Negative because we want to minimize distance
+            openness_scale = 1.0  # Positive to encourage opening when close to handle
+            goal_scale = 2.0  # High reward for achieving goal state
+    
+            # Calculate distance to the handle
+            distance_to_handle = np.linalg.norm(gripper_position - handle_position)
+    
+            # Calculate similarity of gripper openness to ideal grip openness
+            # Assume ideal openness to grasp handle is around -0.5 (partially open)
+            ideal_openness = -0.5
+            openness_diff = abs(gripper_openness - ideal_openness)
+    
+            # Reward for approaching the handle
+            reward_distance = distance_scale * distance_to_handle
+    
+            # Reward for having the gripper in the right openness state
+            # Only significant when close to the handle
+            if distance_to_handle < 0.05:  # Threshold to consider 'close' to the handle
+                reward_openness = openness_scale * (1 - openness_diff)
+            else:
+                reward_openness = 0
+    
+            # Reward for achieving goal (opening the microwave)
+            # This could be defined by the position of the microwave door if movable
+            # Since goal_position is not clear whether it's handle's goal or door's, assume it's door's final position
+             # Assuming obj2 is the microwave door
+            if np.linalg.norm(handle_position - OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]) < 0.01:  # Close to goal position
+                reward_goal_achieved = goal_scale
+            else:
+                reward_goal_achieved = 0
+    
+            # Total reward
+            total_reward = reward_distance + reward_openness + reward_goal_achieved
+    
+            return total_reward
+        elif self.tasks_to_complete[0] == 'light switch':
+            gripper_pos = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            switch_pos = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos
+            goal_pos = OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]
+    
+            # Constants for reward calculation
+            close_enough_threshold = 0.05  # threshold to consider gripper "close enough" to the switch
+    
+            # Calculate distances
+            distance_to_switch = np.linalg.norm(gripper_pos - switch_pos)
+            distance_to_goal = np.linalg.norm(switch_pos - goal_pos)
+     
+            # Define the reward components
+            # Reward for getting the gripper close to the switch
+            if distance_to_switch < close_enough_threshold:
+                proximity_reward = 1.0  # Max reward when very close to the switch
+            else:
+                # Negative exponential decay to reward getting closer
+                proximity_reward = np.exp(-distance_to_switch)
+    
+            # Reward for moving the switch closer to the goal position
+            if distance_to_goal < close_enough_threshold:
+                goal_achievement_reward = 1.0  # Max reward when switch is at the goal position
+            else:
+                # Negative exponential decay to reward progress towards the goal
+                goal_achievement_reward = np.exp(-distance_to_goal)
+    
+            # Combine rewards
+            # Weight could be adjusted based on the phase of the task; initially focus more on getting to the switch
+            total_reward = 0.7 * proximity_reward + 0.3 * goal_achievement_reward
+            return total_reward
+
+        elif self.tasks_to_complete[0] == 'kettle': 
+            robot_ee_pos = (self.data.body('panda0_rightfinger').xpos + self.data.body('panda0_leftfinger').xpos) / 2.0
+            kettle_pos = self.data.site(OBS_ELEMENT_SITES[self.tasks_to_complete[0]]).xpos
+            goal_pos = OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]
+
+            # Constants for reward computation
+            DISTANCE_SCALE = 1.0
+            GOAL_REACHED_REWARD = 10.0
+            GRIPPER_CLOSE_REWARD = 5.0
+    
+            # Compute the Euclidean distance between the gripper and the kettle handle
+            distance_to_kettle = np.linalg.norm(robot_ee_pos - kettle_pos)
+    
+            # Compute the Euclidean distance between the kettle's current position and the goal position
+            distance_to_goal = np.linalg.norm(kettle_pos - goal_pos)
+    
+            # Reward for moving closer to the kettle
+            reward = -DISTANCE_SCALE * distance_to_kettle
+    
+            gripper_openness = np.linalg.norm(
+                self.data.body('panda0_rightfinger').xpos - self.data.body('panda0_leftfinger').xpos)
+            gripper_openness = np.clip(gripper_openness / 0.1, 0., 1.)
+
+            # If the gripper is close enough to the kettle, provide additional reward for grasping
+            if distance_to_kettle < 0.05:  # threshold for being "close"
+                reward += GRIPPER_CLOSE_REWARD * (1 - gripper_openness)  # encourage the gripper to close
+    
+            # Check if kettle is at the goal position within a certain threshold
+            if distance_to_goal < 0.1:  # goal threshold
+                reward += GOAL_REACHED_REWARD
+    
+            return reward
+
+
 
     def _get_obs(self, robot_obs):
         obj_qpos = self.data.qpos[9:].copy()
@@ -415,7 +610,7 @@ class KitchenEnv(GoalEnv, EzPickle):
         if self.terminate_on_tasks_completed:
             # terminate if there are no more tasks to complete
             terminated = len(self.episode_task_completions) == len(self.goal.keys())
-
+        obs = np.concatenate([obs['observation'], OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]])
         return obs, reward, terminated, truncated, info
 
     def reset(self, *, seed: Optional[int] = None, **kwargs):
@@ -423,13 +618,13 @@ class KitchenEnv(GoalEnv, EzPickle):
         self.episode_task_completions.clear()
         robot_obs, _ = self.robot_env.reset(seed=seed)
         obs = self._get_obs(robot_obs)
-        self.tasks_to_complete = set(self.goal.keys())
+        self.tasks_to_complete = list(set(self.goal.keys()))
         info = {
             "tasks_to_complete": list(self.tasks_to_complete),
             "episode_task_completions": [],
             "step_task_completions": [],
         }
-
+        obs = np.concatenate([obs['observation'], OBS_ELEMENT_GOALS[self.tasks_to_complete[0]]])
         return obs, info
 
     def render(self):
